@@ -503,15 +503,21 @@ def main():
     Entry point for the application.
 
     Creates the QApplication, sets up the TrayApp,
-    and starts the Qt event loop.
+    and starts the Qt event loop. Ensures cleanup on exit
+    to prevent segmentation faults with QSystemTrayIcon.
     """
     app = QtWidgets.QApplication(sys.argv)
     tray = TrayApp(app)
     tray.show()
 
-    # Some panels require the window to be created before showing tray
-    # We keep it hidden until clicked.
-    sys.exit(app.exec_())
+    # Run the Qt event loop
+    exit_code = app.exec_()
+
+    # Explicitly clean up the tray before exit
+    tray.hide()
+    del tray
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
