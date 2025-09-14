@@ -43,19 +43,58 @@ API_PATH = "/elgato/lights"
 
 
 def kelvin_to_mired(k: int) -> int:
-    """Convert Kelvin (approx 2900–7000) to mired used by Key Light API."""
+    """
+    Convert Kelvin (approx 2900–7000) to mired used by Key Light API.
+
+    Parameters
+    ----------
+    k : int
+        Temperature in Kelvin.
+
+    Returns
+    -------
+    int
+        The corresponding mired value.
+    """
     k = max(2900, min(7000, int(k)))
     return int(round(1_000_000 / k))
 
 
 def clamp_brightness(b: int) -> int:
-    """ Establish range in percentage (0-100) of brightness values"""
+    """
+    Clamp brightness values into the valid range (0–100).
+
+    Parameters
+    ----------
+    b : int
+        Brightness percentage.
+
+    Returns
+    -------
+    int
+        Brightness constrained to 0–100.
+    """
     return max(0, min(100, int(b)))
 
 
 @dataclass
 class LightStatus:
-    """ Data class containing lamp data """
+    """
+    Data class containing the current state of a Key Light.
+
+    Attributes
+    ----------
+    reachable : bool
+        Whether the light is reachable.
+    on : int
+        1 if the light is on, otherwise 0.
+    brightness : int
+        Current brightness value (0–100).
+    mired : int
+        Current color temperature in mired.
+    raw : dict
+        Raw JSON data returned by the Key Light API.
+    """
     reachable: bool
     on: int = 0
     brightness: int = 0
@@ -89,11 +128,26 @@ class KeylightHTTP:
     """
 
     def __init__(self, host: str):
+        """
+        Initialize the KeylightHTTP client.
+
+        Parameters
+        ----------
+        host : str
+            IP address of the Key Light device.
+        """
         self.host = host
         self.base = f"http://{host}:9123{API_PATH}"
 
     def get(self) -> LightStatus:
-        """ Get the LightStatus"""
+        """
+        Query the Key Light for its current state.
+
+        Returns
+        -------
+        LightStatus
+            Current state of the Key Light.
+        """
         try:
             r = requests.get(self.base, timeout=HTTP_TIMEOUT)
             r.raise_for_status()
@@ -114,8 +168,23 @@ class KeylightHTTP:
 
     def set(self, on: Optional[int] = None,
             brightness: Optional[int] = None, mired: Optional[int] = None) -> bool:
-        """ Set the light status by attributes and gives back False if failing to do so """
+        """
+        Update the Key Light state. Only provided parameters are updated.
 
+        Parameters
+        ----------
+        on : int, optional
+            Power state (1 = on, 0 = off).
+        brightness : int, optional
+            Brightness (0–100).
+        mired : int, optional
+            Color temperature in mired.
+
+        Returns
+        -------
+        bool
+            True if the request succeeded, False otherwise.
+        """
         payload = {"numberOfLights": 1, "lights": [{}]}
         if on is not None:
             payload["lights"][0]["on"] = 1 if on else 0
@@ -132,7 +201,16 @@ class KeylightHTTP:
 
 
 class RoundLED(QtWidgets.QLabel):
-    """A small round LED indicator (green/red)."""
+    """
+    A small round LED indicator widget that can display different colors.
+
+    Parameters
+    ----------
+    diameter : int, optional
+        Size of the LED in pixels.
+    parent : QWidget, optional
+        Parent widget.
+    """
 
     def __init__(self, diameter=14, parent=None):
         super().__init__(parent)
@@ -141,11 +219,26 @@ class RoundLED(QtWidgets.QLabel):
         self.setFixedSize(diameter, diameter)
 
     def set_color(self, color_name: str):
-        """ Set the Color value"""
+        """
+        Set the LED color.
+
+        Parameters
+        ----------
+        color_name : str
+            Name of the color to display (e.g. "green", "red").
+        """
         self._color = QtGui.QColor(color_name)
         self.update()
 
     def paintEvent(self, event):
+        """
+        Paint the LED as a filled circle in the current color.
+
+        Parameters
+        ----------
+        event : QPaintEvent
+            Qt paint event.
+        """
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         rect = self.rect().adjusted(1, 1, -1, -1)
@@ -156,10 +249,27 @@ class RoundLED(QtWidgets.QLabel):
 
 
 class ControlWindow(QtWidgets.QWidget):
+    """
+    Main control window for the Keylight Tray app.
+
+    Provides user interface elements to:
+    - Toggle lights on/off
+    - Adjust brightness
+    - Adjust color temperature
+    - Probe all configured IPs
+
+    Signals
+    -------
+    request_apply : dict
+        Emitted when the user changes brightness, power, or temperature.
+    request_probe : None
+        Emitted when the user requests probing of IPs.
+    """
     request_apply = QtCore.pyqtSignal(dict)  # {'on':0/1, 'b':0-100, 'k':kelvin or None}
     request_probe = QtCore.pyqtSignal()
 
     def __init__(self):
+        """Initialize the control window and UI elements."""
         super().__init__()
         self.setWindowTitle("Keylight Tray")
         self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
@@ -217,33 +327,78 @@ class ControlWindow(QtWidgets.QWidget):
 
     # --- UI callbacks
     def _power_toggled(self, checked: bool):
+        """
+        Handle toggling of the power button.
+
+        Parameters
+        ----------
+        checked : bool
+            True if the button is toggled on.
+        """
         self.btn_power.setText("Ein" if checked else "Aus")
         self._pending["on"] = 1 if checked else 0
         self._apply_timer.start()
 
     def _brightness_changed(self, val: int):
+        """
+        Handle brightness slider changes.
+
+        Parameters
+        ----------
+        val : int
+            New brightness value.
+        """
         self.lbl_b.setText(f"Helligkeit: {val}%")
         self._pending["b"] = val
         self._apply_timer.start()
 
     def _kelvin_changed(self, val: int):
+        """
+        Handle color temperature slider changes.
+
+        Parameters
+        ----------
+        val : int
+            New Kelvin temperature.
+        """
         self.lbl_k.setText(f"Farbtemp: {val} K")
         self._pending["k"] = val
         self._apply_timer.start()
 
     def _emit_apply(self):
+        """Emit a request_apply signal with the current pending state."""
         self.request_apply.emit(dict(self._pending))
 
     # External updates
     @QtCore.pyqtSlot(bool, str)
     def set_led_state(self, all_ok: bool, tooltip: str = ""):
+        """
+        Update the LED indicator state.
+
+        Parameters
+        ----------
+        all_ok : bool
+            True if all lights are reachable.
+        tooltip : str, optional
+            Tooltip text describing the state of each lamp.
+        """
         self.led.set_color("green" if all_ok else "red")
         if tooltip:
             self.led.setToolTip(tooltip)
 
 
 class TrayApp(QtWidgets.QSystemTrayIcon):
+    """
+    System tray application for controlling multiple Elgato Key Lights.
+
+    Provides:
+    - Tray icon with context menu
+    - Control window for user interaction
+    - Background threads for probing and applying light states
+    """
+
     def __init__(self, app: QtWidgets.QApplication):
+        """Initialize the tray application."""
         # Robust icon setup (fallback if theme has no lightbulb icon)
         icon = QtGui.QIcon.fromTheme("lightbulb")
         if icon.isNull():
@@ -275,6 +430,7 @@ class TrayApp(QtWidgets.QSystemTrayIcon):
 
     # --- UI actions
     def toggle_window(self):
+        """Show or hide the control window near the mouse cursor."""
         if self.win.isVisible():
             self.win.hide()
         else:
@@ -286,11 +442,20 @@ class TrayApp(QtWidgets.QSystemTrayIcon):
             self.win.activateWindow()
 
     def _on_tray_activated(self, reason):
+        """
+        Handle tray icon activation (click).
+
+        Parameters
+        ----------
+        reason : QSystemTrayIcon.ActivationReason
+            The reason for the tray activation.
+        """
         if reason == QtWidgets.QSystemTrayIcon.Trigger:
             self.toggle_window()
 
     # --- Network ops (threaded)
     def probe_all(self):
+        """Probe all configured IPs in a background thread."""
         def worker():
             statuses: Dict[str, LightStatus] = {}
             tooltip_lines = []
@@ -298,7 +463,6 @@ class TrayApp(QtWidgets.QSystemTrayIcon):
             for ctl in self.controllers:
                 st = ctl.get()
                 statuses[ctl.host] = st
-                ok = "OK" if st.reachable else "X"
                 tooltip_lines.append(f"{ctl.host}: {'reachable' if st.reachable else 'unreachable'}")
                 if not st.reachable:
                     all_ok = False
@@ -315,7 +479,14 @@ class TrayApp(QtWidgets.QSystemTrayIcon):
         threading.Thread(target=worker, daemon=True).start()
 
     def apply_to_all(self, payload: dict):
-        # Convert payload to API format
+        """
+        Apply a new state to all configured Key Lights in parallel.
+
+        Parameters
+        ----------
+        payload : dict
+            Dictionary with keys 'on', 'b', and 'k' (Kelvin).
+        """
         on = payload.get("on")
         b = payload.get("b")
         k = payload.get("k")
@@ -328,6 +499,12 @@ class TrayApp(QtWidgets.QSystemTrayIcon):
 
 
 def main():
+    """
+    Entry point for the application.
+
+    Creates the QApplication, sets up the TrayApp,
+    and starts the Qt event loop.
+    """
     app = QtWidgets.QApplication(sys.argv)
     tray = TrayApp(app)
     tray.show()
@@ -339,3 +516,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
