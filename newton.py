@@ -22,16 +22,12 @@ Customize the IPs by editing the STATIC_IPS list below.
 
 import sys
 import threading
-# import time
-from dataclasses import dataclass
-# from typing import List, Dict, Tuple
-from typing import Dict
+from dataclasses import dataclass, field
+from typing import Dict, Optional
 
 import requests
-from requests.exceptions import RequestException
-
 from PyQt5 import QtCore, QtGui, QtWidgets
-from dataclasses import dataclass, field
+from requests.exceptions import RequestException
 
 # ---------------------- User configuration ----------------------
 # Put your known lamp IPs here. You can add/remove IPs anytime.
@@ -53,11 +49,13 @@ def kelvin_to_mired(k: int) -> int:
 
 
 def clamp_brightness(b: int) -> int:
+    """ Establish range in percentage (0-100) of brightness values"""
     return max(0, min(100, int(b)))
 
 
 @dataclass
 class LightStatus:
+    """ Data class containing lamp data """
     reachable: bool
     on: int = 0
     brightness: int = 0
@@ -66,11 +64,36 @@ class LightStatus:
 
 
 class KeylightHTTP:
+    """
+    Simple HTTP client for controlling an Elgato Key Light by IP address.
+
+    This class provides methods to query and update the state of a Key Light
+    device via its local REST API. It supports reading the current status
+    (on/off, brightness, temperature) and sending commands to change them.
+
+    Attributes
+    ----------
+    host : str
+        The IP address of the Key Light.
+    base : str
+        The full base URL for the Key Light API endpoint.
+
+    Methods
+    -------
+    get() -> LightStatus
+        Fetch the current status of the light. Returns a LightStatus object.
+    set(on: Optional[int] = None, brightness: Optional[int] = None,
+        mired: Optional[int] = None) -> bool
+        Update the light's state. Only the provided parameters are changed.
+        Returns True if the request succeeded, otherwise False.
+    """
+
     def __init__(self, host: str):
         self.host = host
         self.base = f"http://{host}:9123{API_PATH}"
 
     def get(self) -> LightStatus:
+        """ Get the LightStatus"""
         try:
             r = requests.get(self.base, timeout=HTTP_TIMEOUT)
             r.raise_for_status()
@@ -89,8 +112,10 @@ class KeylightHTTP:
         except RequestException:
             return LightStatus(reachable=False)
 
-    def set(self, on: int = None, brightness: int = None, mired: int = None) -> bool:
-        # Build payload from current values if needed
+    def set(self, on: Optional[int] = None,
+            brightness: Optional[int] = None, mired: Optional[int] = None) -> bool:
+        """ Set the light status by attributes and gives back False if failing to do so """
+
         payload = {"numberOfLights": 1, "lights": [{}]}
         if on is not None:
             payload["lights"][0]["on"] = 1 if on else 0
@@ -116,6 +141,7 @@ class RoundLED(QtWidgets.QLabel):
         self.setFixedSize(diameter, diameter)
 
     def set_color(self, color_name: str):
+        """ Set the Color value"""
         self._color = QtGui.QColor(color_name)
         self.update()
 
@@ -210,7 +236,7 @@ class ControlWindow(QtWidgets.QWidget):
 
     # External updates
     @QtCore.pyqtSlot(bool, str)
-    def set_led_state(self, all_ok: bool, tooltip: str = ""): 
+    def set_led_state(self, all_ok: bool, tooltip: str = ""):
         self.led.set_color("green" if all_ok else "red")
         if tooltip:
             self.led.setToolTip(tooltip)
