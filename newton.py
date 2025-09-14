@@ -24,6 +24,7 @@ import sys
 import threading
 from dataclasses import dataclass, field
 from typing import Dict, Optional
+from pathlib import Path
 
 import requests
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -400,12 +401,11 @@ class TrayApp(QtWidgets.QSystemTrayIcon):
     def __init__(self, app: QtWidgets.QApplication):
         """Initialize the tray application."""
         # Robust icon setup (fallback if theme has no lightbulb icon)
-        icon = QtGui.QIcon.fromTheme("lightbulb")
-        if icon.isNull():
-            # Fallback to a standard icon so QSystemTrayIcon always has one
-            style = app.style()
-            icon = style.standardIcon(QtWidgets.QStyle.SP_TitleBarMenuButton)
+        icon = load_app_icon(app)
         super().__init__(icon, app)
+        self.win = ControlWindow()
+        self.win.setWindowIcon(icon)
+
         self.setToolTip("Keylight Tray")
         self.menu = QtWidgets.QMenu()
 
@@ -497,6 +497,25 @@ class TrayApp(QtWidgets.QSystemTrayIcon):
                 ctl.set(on=on, brightness=b, mired=mired)
         threading.Thread(target=worker, daemon=True).start()
 
+def load_app_icon(app: QtWidgets.QApplication) -> QtGui.QIcon:
+    """
+    Return a tray/app icon in this order:
+    1) XDG theme icon "lightbulb" (if your theme provides it),
+    2) bundled PNG at ./assets/keylight.png,
+    3) a generic Qt fallback icon.
+    """
+    # Try theme icon first
+    themed = QtGui.QIcon.fromTheme("lightbulb")
+    if not themed.isNull():
+        return themed
+
+    # Single bundled icon (one big PNG is enough; Qt scales it)
+    p = Path(__file__).resolve().parent / "assets" / "icon.png"
+    if p.exists():
+        return QtGui.QIcon(str(p))
+
+    # Fallback so there's always an icon
+    return app.style().standardIcon(QtWidgets.QStyle.SP_TitleBarMenuButton)
 
 def main():
     """
